@@ -1,0 +1,117 @@
+---
+title: "Assignment 2 final"
+author: "King Banaian"
+date: "2025-02-21"
+output:
+  word_document: default
+  pdf_document: default
+---
+##Loading needed libraries
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(knitr)
+library(lubridate)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading the data
+
+The method I used above includes the forecast library, which allows me to use some slightly different ways of creating the training data and the testind datasets. 
+
+```{r read data and convert to time series}
+# Read and prepare the data
+data <- read.csv("USTRADE.csv")
+data$observation_date <- as.Date(paste0(data$observation_date, "-01"), format="%m/%d/%Y-%d")
+
+# Convert to time series object
+ts_data <- ts(data$USTRADE, frequency=12, 
+              start=c(year(min(data$observation_date)), month(min(data$observation_date))))
+
+summary(ts_data) 
+```
+
+## Splitting the data
+
+Now we will create the training data through the end of 2021, set up the testing period of 2022-23, and then a last set to hold 2024:
+
+```{r data windows}
+# Split into training (up to Dec 2021) and test (2022-2023)
+train_data <- window(ts_data, end=c(2021,12))
+test_data <- window(ts_data, start=c(2022,1), end=c(2023,12))
+```
+
+## Forecasts for 2022-23
+
+We now generate the forecasts and use the accuracy() function to collect forecast summary statistics.
+
+```{r}
+# Generate forecasts
+naive_fc <- naive(train_data, h=24)
+snaive_fc <- snaive(train_data, h=24)
+drift_fc <- rwf(train_data, h=24, drift=TRUE)
+
+# Calculate accuracy measures
+naive_accuracy <- accuracy(naive_fc, test_data)
+snaive_accuracy <- accuracy(snaive_fc, test_data)
+drift_accuracy <- accuracy(drift_fc, test_data)
+```
+
+##Create a pretty table to compare the forecast error statistics for 2022-2023
+
+I'm going to make a data frame here report out three important error statsitics: the root mean squared error (RMSE), the mean absolute error (MAE) and the mean absolute percent error (MAPE). I wasn't very fussy in how I graded what you did to make this table. I just wanted to see how you would present the results.
+
+```{r forecast table}
+# Calculate accuracy measures
+naive_accuracy <- accuracy(naive_fc, test_data)
+snaive_accuracy <- accuracy(snaive_fc, test_data)
+drift_accuracy <- accuracy(drift_fc, test_data)
+
+# Create comparison table
+comparison_table <- data.frame(
+  Method = c("Naive", "Seasonal Naive", "Drift"),
+  RMSE = round(c(naive_accuracy[2,"RMSE"], 
+                 snaive_accuracy[2,"RMSE"],
+                 drift_accuracy[2,"RMSE"]), 2),
+  MAE = round(c(naive_accuracy[2,"MAE"],
+                snaive_accuracy[2,"MAE"],
+                drift_accuracy[2,"MAE"]), 2),
+  MAPE = round(c(naive_accuracy[2,"MAPE"],
+                 snaive_accuracy[2,"MAPE"],
+                 drift_accuracy[2,"MAPE"]), 2)
+)
+
+# Print table
+print("Forecast Accuracy Comparison:")
+print(kable(comparison_table))
+```
+
+As you can see, the drift model is better across all three forecast accuracy summary statistics. We will use this to create our final forecast for 2024.
+
+##Make 2024 forecast
+
+In this section I have added a graph that shows how 2024 actually turned out (since I gave you those data) to your forecast.
+
+```{r 2024 forecast, echo=FALSE}
+# Generate 2024 forecasts using best method (based on RMSE) using data through 2023
+data_for_forecast <- window(ts_data, end=c(2023,12))
+final_forecast <- rwf(data_for_forecast, h=12, drift=TRUE)
+print("\n2024 Forecasts (Drift Method):")
+print(forecast(final_forecast))
+
+# Plot the forecast with actual 2024 data
+autoplot(final_forecast) +
+  autolayer(window(ts_data, start=c(2024,1), end=c(2024,12)), series="Actual 2024") +
+  theme_minimal() +
+  labs(x = "Time", y = "US Retail Trade (Millions of Dollars)", 
+       title = "US Retail Trade: 2024 Forecast vs Actual") +
+  coord_cartesian(xlim = c(2023, 2024.99),
+                 ylim = c(15000, 17000)) +
+  scale_x_continuous(breaks = seq(2023, 2024.99, 0.25)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+```
+
+The error bands are quite large, but the forecast tracks pretty well to the actual data, as you can see on the graph I've drawn. The way I have done the forecast only uses data through 2023 (updating the drift method's parameters from 2021). 

@@ -1,0 +1,265 @@
+---
+title: "Assignment 1"
+author: "King Banaian"
+date: "2025-01-31"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+## 1. Load the data
+
+First we need to load our libraries; you should be sure you've installed them first on your machine. I find lubridate incredibly helpful so I always default to include its functions.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+library(tidyverse)
+library(lubridate)
+```
+
+We can just read this CSV file, though what we'll find out is that the date variable isn't being read right by R and we'll have to tidy it.
+
+```{r empces}
+# Read the CSV file
+employment_data <- read.csv("stcemployment.csv")
+```
+
+## 2. Checking to be sure dates are done right
+
+```{r}
+# Let's check the data first
+print("Original date format:")
+head(employment_data$Date)
+
+# Try the conversion and check results
+employment_data <- employment_data %>%
+  mutate(Date = as.Date(paste("01-", Date), format = "%d-%b-%y"))
+
+print("After conversion - check for any NA values:")
+summary(employment_data$Date)
+
+# If we still have issues, let's try an alternative approach using dmy()
+employment_data <- read.csv("stcemployment.csv") %>%
+  mutate(Date = dmy(paste("01", Date, sep = "-")))
+
+print("Alternative conversion results:")
+summary(employment_data$Date)
+```
+
+I tried different ways to manipulate the dates to be sure it worked right. There are different ways to do this, but I'll know if you got it right more by plotting the data than any other way.
+
+## 3. Plotting the raw data.
+
+```{r plot_empces, echo=FALSE}
+if(!any(is.na(employment_data$Date))) {
+  ggplot(employment_data, aes(x = Date, y = empces)) +
+    geom_line(color = "steelblue", linewidth = 1) +
+    labs(
+      title = "Employment Over Time",
+      x = "Year",
+      y = "Employment (thousands)",
+      caption = "Source: STC Employment Data"
+    ) +
+    theme_minimal() +
+    scale_x_date(date_breaks = "5 years", date_labels = "%Y") +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+```
+
+You can see then that these data are seasonal -- every year there is a fluctuation of higher in fall, lower in winter.
+
+## 4. Take annual averages for each year and plot this on a graph.
+
+Harder than it looks! You need to do the following steps.
+
+1.  Group data by year.
+
+2.  Calculate mean employment for each year.
+
+3.  Convert the year back to a date for plotting (that's the tricky part!)
+
+4.  Create the line plot with points to show the annual average.
+
+```{r}
+# Calculate annual averages
+annual_data <- employment_data %>%
+  mutate(Year = format(Date, "%Y")) %>%  # Extract year from date
+  group_by(Year) %>%
+  summarise(
+    avg_employment = mean(empces),
+    .groups = 'drop'
+  ) %>%
+  mutate(Year = as.Date(paste0(Year, "-01-01")))  # Convert year back to date for plotting
+
+# Create plot of annual averages
+ggplot(annual_data, aes(x = Year, y = avg_employment)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +  # Adding points to show annual values
+  labs(
+    title = "Average Annual Employment",
+    x = "Year",
+    y = "Average Employment (thousands)",
+    caption = "Source: STC Employment Data"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_breaks = "5 years", date_labels = "%Y") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+By taking annual averages we have smoothed out those seasonal waves and have just three trend lines with two discrete drops in 2008 and 2020, coinciding with the Great Financial Crisis and the COVID pandemic.
+
+## 5a. Moving average smoothing
+
+I did not show you, and neither does the book, how to do a grid search for the best length. So I expected you to choose a length. Based on what I see, a length of 12 works best for these data.
+
+If you tried 3- or 6-month moving averages you probably would end up with the data still a little too noisy. It's often a good rule to use a 12 month moving average for monthly data and a 4 quarter moving average for quarterly data (i.e, the order of smoothing equals the number of seasons.) Using a longer length than 12 may "oversmooth" the data and make you miss trends.
+
+```{r ma}
+# Create different moving averages to compare
+library(tidyverse)
+library(zoo)  # for rolling means
+
+employment_smooth <- employment_data %>%
+  mutate(
+    MA3 = rollmean(empces, k = 3, fill = NA),
+    MA6 = rollmean(empces, k = 6, fill = NA),
+    MA12 = rollmean(empces, k = 12, fill = NA),
+    MA24 = rollmean(empces, k = 24, fill = NA)
+  )
+
+# Plot to compare different moving averages
+ggplot(employment_smooth, aes(x = Date)) +
+  geom_line(aes(y = empces), color = "gray70", alpha = 0.5) +
+  geom_line(aes(y = MA3, color = "3-month MA")) +
+  geom_line(aes(y = MA6, color = "6-month MA")) +
+  geom_line(aes(y = MA12, color = "12-month MA")) +
+  geom_line(aes(y = MA24, color = "24-month MA")) +
+  labs(
+    title = "Employment with Different Moving Averages",
+    x = "Year",
+    y = "Employment (thousands)",
+    color = "Moving Average"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_breaks = "5 years", date_labels = "%Y") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+
+# Looking at the plot, I'd recommend using a 12-month moving average
+# This will remove seasonal variation while preserving the underlying trend
+
+# Create final plot with raw data and chosen moving average
+ggplot(employment_smooth, aes(x = Date)) +
+  geom_line(aes(y = empces, color = "Raw Data"), alpha = 0.5) +
+  geom_line(aes(y = MA12, color = "12-month Moving Average"), linewidth = 1) +
+  labs(
+    title = "Employment: Raw Data vs 12-month Moving Average",
+    x = "Year",
+    y = "Employment (thousands)",
+    color = "Series"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_breaks = "5 years", date_labels = "%Y") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  ) +
+  scale_color_manual(values = c("Raw Data" = "red", "12-month Moving Average" = "steelblue"))
+```
+
+You will notice this is different than using the annual averages as in part 4. This is because the average is shifting each month by one month (adding the latest month, dropping the one 12 months ago.)
+
+## 5b. Classical decomposition
+
+You could have done additive or multiplicative decomposition here and I would expect you to know the difference. I thought you would do only one, but I've shown both in this answer key.
+
+```{r decomp} 
+# First, convert the data to a time series object
+employment_ts <- ts(employment_data$empces, 
+                   start = c(1990, 1), 
+                   frequency = 12)  # monthly data, so frequency = 12
+
+# Perform additive decomposition
+decomp <- decompose(employment_ts, type = "additive")
+
+# Plot the decomposition
+plot(decomp, 
+     xlab = "Year")
+
+# If you want to access the components separately:
+trend <- decomp$trend
+seasonal <- decomp$seasonal
+random <- decomp$random
+
+# Create a data frame with the components for possible further analysis
+decomp_df <- data.frame(
+  Date = employment_data$Date,
+  Observed = employment_data$empces,
+  Trend = as.vector(trend),
+  Seasonal = as.vector(seasonal),
+  Random = as.vector(random)
+)
+
+# Look at summary statistics of the components
+summary(decomp_df)
+```
+
+The decomposition will pull the trend out which looks mostly the same as our moving average. The seasonal component is assumed constant from year to year and shows the same pattern we described earlier, but now we have a measurement.
+
+What I find most interesting with these results are the random components pulling out the COVID shock.You see this in the spikes for the random component (the minimum and maximum are in April and May of that year.) You would get a similar result for multiplicative, which I leave to the student to show.
+
+## 5c, STL decomposition
+
+STL, or "Seasonal and Trend decomposition using Loess" is a technique for estimating nonlinear patterns. It grabs any kind of seasonality and lets it fluctuate. 
+
+Because Loess estimates need to use additive seasonality, I use the raw data. Hyndman has a fix to use a Box-Cox transformation if you find need for a multiplicative series. 
+
+Another advantage to STL is that it is better with outliers. COVID gave us outliers, so we want to see if it does a better job describing the data.
+
+```{r STL}
+# Convert the data to a time series object (if not already done)
+employment_ts <- ts(employment_data$empces, 
+                   start = c(1990, 1), 
+                   frequency = 12)  # monthly data, so frequency = 12
+
+# Perform STL decomposition
+# s.window is the seasonal window (either 'periodic' or a positive odd integer)
+# t.window is the trend window (recommend larger than seasonal period)
+stl_decomp <- stl(employment_ts, 
+                  s.window = "periodic",
+                  t.window = 13)
+
+# Plot the decomposition
+plot(stl_decomp, 
+     main = "STL Decomposition of Employment Data")
+
+# If you want to access the components:
+trend <- stl_decomp$time.series[,"trend"]
+seasonal <- stl_decomp$time.series[,"seasonal"]
+remainder <- stl_decomp$time.series[,"remainder"]
+
+# Create a data frame with components if needed for further analysis
+stl_df <- data.frame(
+  Date = employment_data$Date,
+  Observed = employment_data$empces,
+  Trend = as.vector(trend),
+  Seasonal = as.vector(seasonal),
+  Remainder = as.vector(remainder)
+)
+# Look at summary statistics of the components
+summary(stl_df)
+```
+
+I once again summarized the components to see if we reduced the fluctuations in that COVID shock. It's a little better, but not a lot. 
